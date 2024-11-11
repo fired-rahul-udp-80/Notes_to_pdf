@@ -162,10 +162,16 @@ exports.sendMail = async(req, res) =>{
         };
          
         const attachments = [];
-         
+     
         // Fetch and process each ID in the array
         for (const singleId of id) {
-            const pdfData = await Notes.findById(singleId);
+
+            // Check if the ID is a valid ObjectId
+            if (!mongoose.Types.ObjectId.isValid(singleId)) {
+                return res.status(400).json({ success: false, message: `Invalid ID format: ${singleId}` });
+            }
+         
+            const pdfData = await Notes.findById(mongoose.Types.ObjectId(singleId));
             if (!pdfData) {
                 return res.status(404).json({ success: false, message: `PDF not found for ID: ${singleId}` });
             }

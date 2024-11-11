@@ -152,105 +152,116 @@ exports.getNotes = async(req, res) =>{
 
 }
 
-exports.sendMail = async(req, res) =>{
-    try{
-        const { id, userEmail } = req.body;  // 'id' should  be in array of id
-        console.log(id,userEmail);
-
-        if(id == " " || !userEmail){
-            return res.status(400).json({ success: false, message: 'Please provide id and email'});
-        };
+exports.sendMail = async (req, res) => {
+    try {
+        const { id, userEmail } = req.body;
+        console.log("id:",id);
          
+        // Validate input
+        if (!Array.isArray(id) || id.length === 0 || !userEmail) {
+            return res.status(400).json({ success: false, message: 'Please provide a valid array of IDs and an email' });
+        }
+
         const attachments = [];
-     
+        console.log("step2");
+
         // Fetch and process each ID in the array
         for (const singleId of id) {
+            try {
+                // Validate and convert singleId
+                
+                if (!mongoose.Types.ObjectId.isValid(singleId)) {
+                    return res.status(400).json({ success: false, message: `Invalid ID format: ${singleId}` });
+                }
+                console.log('step3');
+              //  const objId = new mongoose.Types.ObjectId(singleId);
+                const pdfData = await Notes.findById(singleId);
+                //console.log(objId);
+                
+                if (!pdfData) {
+                    return res.status(404).json({ success: false, message: `PDF not found for ID: ${singleId}` });
+                }
+                 
 
-            // Check if the ID is a valid ObjectId
-            if (!mongoose.Types.ObjectId.isValid(singleId)) {
-                return res.status(400).json({ success: false, message: `Invalid ID format: ${singleId}` });
+                // Temporary path to save the PDF
+                const pdfPath = `./${pdfData.fileName}.pdf`;
+
+                // Download the PDF from Cloudinary
+                const response = await axios({
+                    url: pdfData.filePath,
+                    method: 'GET',
+                    responseType: 'stream',
+                });
+                console.log('step4');
+                // Save the file locally
+                const writer = fs.createWriteStream(pdfPath);
+                response.data.pipe(writer);
+
+                await new Promise((resolve, reject) => {
+                    writer.on('finish', resolve);
+                    writer.on('error', reject);
+                });
+
+                // Add to attachments
+                attachments.push({
+                    filename: `${pdfData.fileName}.pdf`,
+                    path: pdfPath,
+                });
+
+            } catch (error) {
+                console.error(`Error processing ID ${singleId}:`, error.message);
+                return res.status(500).json({ success: false, message: `Error processing ID ${singleId}: ${error.message}` });
             }
-         
-            const pdfData = await Notes.findById(mongoose.Types.ObjectId(singleId));
-            if (!pdfData) {
-                return res.status(404).json({ success: false, message: `PDF not found for ID: ${singleId}` });
-            }
-
-            // Temporary path to save the PDF
-            const pdfPath = `./${pdfData.fileName}.pdf`;
-             
-            // Download the PDF from Cloudinary
-            const response = await axios({
-                url: pdfData.filePath,
-                method: 'GET',
-                responseType: 'stream',
-            });
-
-            // Save the file locally
-            const writer = fs.createWriteStream(pdfPath);
-            response.data.pipe(writer);
-
-            // Wait for the file to be completely written
-            await new Promise((resolve, reject) => {
-                writer.on('finish', resolve);
-                writer.on('error', reject);
-            });
-            
-            // Add the downloaded PDF to attachments
-            attachments.push({
-                filename: `${pdfData.fileName}.pdf`,
-                path: pdfPath, // Local path of the downloaded PDF
-            }); 
         }
-       
-        // set up Nodemailer for gmail
-         
+
+        // Set up Nodemailer for Gmail
         const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
-            auth:{
-                user:process.env.EMAIL_USER,
-                pass:process.env.EMAIL_PASS,
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS,
             },
         });
-        
-        // Email options with PDF attachement
-        const mailOptions ={
-            from:process.env.EMAIL_USER,
-            to:userEmail,
-            subject: 'PDF Attachement',
-            html : `<p>Please find the attachment PDF document</p>
-                    <p>Best regards</p>
-                    <p>Maintain By : <strong>Rahul Kumar|| NIU</strong></p>
-                    <p>Website : http://itsrahulkumar.netlify.app</p>`,
+
+        // Email options with PDF attachment
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: userEmail,
+            subject: 'PDF Attachment',
+            html: `<p>Please find the attached PDF document(s)</p>
+                   <p>Best regards</p>
+                   <p>Maintained by: <strong>Rahul Kumar || NIU</strong></p>
+                   <p>Website: http://itsrahulkumar.netlify.app</p>`,
             attachments,
-            
-             
-            
         };
-         
+
         // Send the email
         const result = await transporter.sendMail(mailOptions);
 
         // Cleanup: Delete the temporary PDFs after sending
-        attachments.forEach((attachment) => {
-            fs.unlinkSync(attachment.path);
-        });
-
-        if(result){
-            return res.status(200).json({
-                success:true,
-                message: 'Email sent successfully with PDF attachment',
-            })
+        try {
+            attachments.forEach((attachment) => {
+                fs.unlinkSync(attachment.path);
+            });
+        } catch (cleanupError) {
+            console.error("Error cleaning up temporary files:", cleanupError);
         }
 
-    }catch(err){
-        console.log("Error in sending mail");
+        if (result) {
+            return res.status(200).json({
+                success: true,
+                message: 'Email sent successfully with PDF attachment(s)',
+            });
+        }
+
+    } catch (err) {
+        console.log("Error in sending mail:", err.message);
         return res.status(400).json({
             success: false,
             message: err.message,
-        })
+        });
     }
-}
+};
 
 
  
